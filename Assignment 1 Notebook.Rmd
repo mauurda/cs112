@@ -1,0 +1,224 @@
+---
+title: "CS112 A1 - Mau Urdaneta"
+output: html_notebook
+---
+
+
+
+```{r}
+#foo <- read.csv("https://tinyurl.com/yb4phxx8")
+
+#downloaded and loaded the data externally due to Rstudio issues.
+foo<- read.csv("/Users/mauuu/Downloads/foo.csv")
+
+```
+
+Preparing Data
+```{r}
+# take note of the columns representing calendar dates
+date.columns <- c(11 , 12 , 14 , 15 , 16 , 17 , 18 , 25)
+for(i in date.columns) { 
+     which_values_are_missing <- which(as.character(foo[,i])=="")
+     # Replace them by NAs
+     foo[which_values_are_missing,i]<- NA
+     # Turn values into dates
+     foo[,i]<- as.Date(as.character(foo[ ,i]))}
+
+
+
+library(dplyr)
+new_foo <- as_tibble(foo) %>%
+  #Selecting only rows w/ Existing CirculationDates over 2009-01-01
+  filter(CirculationDate > as.Date("2009-01-01") & !is.na(OriginalCompletionDate)) %>%
+  #Adding a variable that measures the difference between Original and Revised Completion Dates. 
+  mutate(CompletionDiff = as.numeric(RevisedCompletionDate - OriginalCompletionDate)/(365/12), ApprovalDiff = as.numeric(OriginalCompletionDate - ApprovalDate)/(365/12) )
+#removing leading/trailing from Country variable. 
+
+
+```
+
+1. 
+  a) 
+
+```{r}
+summary(new_foo$ApprovalDiff)
+```
+The mean difference between Approval Date and Original Completion Date is lower than claimed (21.4 months vs. 24 months), therefore it would be more precise to say that, on average, the time elapsed between a project's Approval Date and Original Completion Date is 21.4 months.
+```{r}
+#makes a cumulative distribution function for Approval Difference values.
+  attach(new_foo)
+ApDiffPercentiles <-ecdf(ApprovalDiff)
+#Checks the percentile at which the 24 month value is in the cumulative distribution. 
+ApDiffPercentiles(24)
+```
+Having said that, whoever made the claim could have instead said that over 60% of projects (61.5% to be precise) with existing Circulation Dates after 2009 - 01 - 01, had less than 24 months elapse between Approval Date and Completion Date. 
+
+  b) 
+
+```{r}
+library(ggplot2)
+
+#Sets theme for stylistic purposes.
+theme_set(theme_classic())
+#Creates a smooth graph showing trend in completion delays over circulation dates. 
+ggplot(new_foo, aes(x=CirculationDate, y=CompletionDiff)) + 
+    geom_smooth(level = 0.5)+
+    labs(title="Smooth Completion Delay Over Time", 
+         subtitle="Months elapsed between Original and Revised Completion Date vs.\nCirculation date (w/ 95% confidence interval).",
+         caption="Source: Foo",
+         y="Mean Completion Delay (Months)") +
+  scale_x_date(name="Circulation Date",date_breaks = "1 year", date_labels ="%Y" )
+ 
+```
+We can see that the mean Completion Delay first followed a decreasing pattern from projects circulating near the beggining of 2009 (~ 27 months) to the beggining of 2010 (~20 months). During this period, delay variance also decreased slightly. In 2010, there was a slight rise in delays and a widening of the confidence interval (indicating increased variance). From the beggining of 2011 to the ending of 2013, there was a downward trend in the mean (~16 months at the end), with the variance remaining relatively constant. From beggining of 2014 to mid 2015, the mean delay rised again (with less variance). After this, it decreased until 2017, reaching a low of ~ 18 months in late 2016. From then on it has followed an increasing trend with increased variance until the last available projects. 
+
+To avoid overplotting, we created this smoothed trend plot using ggplot library defaults.  It uses a generalized additive model with cubic splines smoother formula "y ~ s(x, bs = "cs")" to optimize for minimum curvature as well as minimum error. The parameter "level = 0.5" narrows the confidence interval to include only the 50% (instead of the 95%) of data around the mean, effectively turning the shaded area into an interquantile range (25p - 75p).
+
+
+
+  c)
+
+```{r}
+#Adds a variable (ActualDur) that shows the difference between the revised completion date and  approval date of a project.
+new_foo <- mutate(new_foo, ActualDur = as.numeric(RevisedCompletionDate - ApprovalDate)/(365/30))
+
+#Creates descriptive summaries of planned project durations and actual durations. 
+Planned <- summary(ApprovalDiff)
+Actual <- summary(new_foo$ActualDur)
+
+#Combines summaries into a tibble, calculates IQR, selects key variables and presents through gt for readability.
+Delay <- as_tibble(rbind(Planned,Actual),.name_repair = "universal")
+Delay <- mutate(Delay, IQR =  ..3rd.Qu. - ..1st.Qu. )
+Delay$Values <- c("Planned Length","Actual Length")
+Delay <- select(Delay,Values,..1st.Qu.,Median,Mean,..3rd.Qu.,IQR)
+library(gt)
+gt(Delay)
+```
+ 
+```{r}
+#Graphs planned project durations and actual durations into a boxplot for more visual analysis. 
+boxplot(new_foo$ApprovalDiff, new_foo$ActualDur, ylab="Months", xlab= "Planned (left) vs Actual (right) Duration.")
+```
+We can see that median project actual duration is almost 5 times higher than the planned duration. We can also see that the IQR for the actual duration of projects is much wider than that for planned duration of projects.
+
+2) 
+
+```{r}
+recent_foo <- as_tibble(foo) %>%
+  #Selecting only rows w/ Existing CirculationDates over 2009-01-01
+  filter(FinancialCompletionDate > as.Date("2010-01-01") & !is.na(Rating))
+#counting remaining projects
+projectn <- dim(recent_foo)[1]
+
+#groups and counts groups by rating. 
+foo_ratings <- recent_foo %>%
+  count(Rating) %>%
+  mutate(RatingPerc = round(n/projectn*100,1))
+
+#adds a title and description according to assignment prompt
+ratings_tbl <- gt(data = foo_ratings)
+ratings_tbl<- ratings_tbl %>%
+   tab_header(
+    title = "Projects by Rating",
+    subtitle = "Number and Percentage.\n2010 and more recent."
+  )
+ratings_tbl
+```
+Most of the projects in question fall into a rating of 2 (72%) while only 14% (Rating 3) and 12% (Rating 1) fall to each side. However, there is too nuch missing data for the rest of the projects to draw any inferences beyond describing the distribution of ratings.  
+
+3.
+
+```{r}
+pata_foo <- as_tibble(foo) %>%
+  #Does the same process as above for PATA projects only. 
+  filter(FinancialCompletionDate > as.Date("2010-01-01") &!is.na(Rating) & Type == "PATA")
+projectn <- dim(pata_foo)[1]
+pata_foo_ratings <- pata_foo %>%
+  count(Rating) %>%
+  mutate(RatingPerc = round(n/projectn*100,1))
+
+pata_ratings_tbl <- gt(data = pata_foo_ratings)
+pata_ratings_tbl<- pata_ratings_tbl %>%
+   tab_header(
+    title = "PATA Projects by Rating",
+    subtitle = "Number and Percentage.\n2010 and more recent."
+  )
+pata_ratings_tbl
+```
+Pata projects are a subsample of the projects analyzed above, and they also seem to follow an approximately normal distribution, with the vast majority of projects falling on 2 (72%), 18% on 3 and 8% on 1.  
+
+4. 
+
+
+```{r}
+#attaches dataset
+attach(new_foo)
+
+#creates a cumulative percentile distribution of revised amounts
+AmountPercentiles <-ecdf(RevisedAmount)
+
+#Adds the percentile at which each project falls to every project in the variable AmPer
+new_foo$AmPer <- AmountPercentiles(new_foo$RevisedAmount)
+
+#filters projects from the top and bottom 10 percentiles and adds a distinguishing boolean to facilitate analysis and graphing. 
+edge_projects <- filter(new_foo, AmPer>=.9 | AmPer<=.1)
+edge_projects<- mutate(edge_projects,Top10 = ifelse(AmPer>=.9,1,0 ))
+
+#graphs the density distribution of projects according to ratings, split between the top 10 percentile (1) and the bottom 10 percentile(0)
+theme_set(theme_classic())
+ggplot(edge_projects, aes(Rating)) + 
+  geom_density(aes(fill=factor(Top10),alpha=0.4))+
+  theme(legend.position="top")
+```
+The density distribution for ratings seems comparable between the 10% most funded (Blue) and the 10% least funded (Red) projects. There seem to be a around half Bottom10 as Top10 in the 0 Category, slightly more Top10 in in the 1 Category and slightly more Bottom10s in Cats 2 and 3. However, the differences do not appear to be significant. 
+
+```{r}
+#creates a bar chart to compare the amount of projects on the top and bottom 10 percentiles per department. 
+ggplot(edge_projects, aes(Dept)) + 
+  geom_bar(aes(fill=factor(Top10)), position = "dodge")+
+  theme(legend.position="top")
+```
+There is less overlapp in terms of departments than there was in terms of rating. 7 departments had some Bottom10 but no Top10 projects (in terms of funding percentiles). 9 departments had projects that fell into both categories, and only 1 department had some projects at or above over the 90th percentile and none below the 10th. 
+```{r}
+#There are too many countries to create a readable plot,so here we
+#group projects by country, count how many are in the top decile
+tallyCount <- edge_projects %>%group_by(Country) %>%count(Top10)%>% select(Country,Top10,n)
+
+#split the tibbles into top and bottom decile, then merge by country and rename variables for readability. 
+top_p <- filter(tallyCount, Top10 ==1)
+bot_p<- filter(tallyCount, Top10 ==0)
+country_table <- merge(top_p,bot_p,by="Country")
+country_table <- select(country_table,Country,TopFundedProjects = n.x,BottomFundedProjects =n.y)
+gt(country_table)
+```
+There does seem to be a difference in terms of which countries get assigned more projects and/or projects with more funding. However, we cannot draw any real insights from these differences because:
+a) we are only looking at the edges of a distribution and neglecting all the values between the 10th and 90th percentiles. 
+b) we are isolating this table from other factors such as project delay, when the project was conducted and (quite possibly) a large number of differences amongst projects that are not captured by this dataset.  
+
+
+5) Optimal budget-setting to minimize project completion delays
+
+  (a) The objective is to minimize project delay (Difference between original completion date and actual completion date).
+  (b) The main lever is given in the prompt: budget. However, we can safely assume that the problem is not about finding one single ideal budget for all projects, but rather about finding an appropriate budget to minimize the projects delay given a series of the project's characteristics. To select this variables based on evidence, we would need a deeper analysis of their association with project delays.
+  (c) 
+    1. Have multiple teams with comparable capacities and characteristics (e.g. same amount of people with a comparable background and seniority on each team) simultaneously assigned (randomly) to some of the villages in a large area.         2. Assign all of them the same project and original completion date, for example increasing the percentage of school age children enrolled in some elementary school by 25% in 2 years.
+    3. Analyze initial baselines for the variable which is the goal of the project (school enrollment in this example); make sure that they are relatively similar across villages.
+    4. Randomly assign different levels of funding to each of the teams.
+    5. Wait until each project is completed, regardless of the original completion date.
+    6. Compare delay times between teams with more or less funding.  
+
+Notes: while ideal, this design would be expensive and lengthy). Simultaneously, a lot of tradeoffs would be made; in terms of generalizability vs. internal validity, having multiple villages in the same area makes the results less generalizable to other places but increases the reliability of comparison across units (villages).Having multiple (albeit seemingly comparable) teams running projects might not isolate the effect of differences in the team running the project as much as having one team rpeatedly try the same project, but it should remove the effects of a team becoming more efficient and forecastimng delays better after runnning the same project multiple times. 
+
+  (d) Dependent Variable: Project Delay (Time elapsed between Original Project Completion Date and Actual Project Completion Date).Independent Variable: Budget assigned for the project. 
+  (e) Why would running RCTs and modeling/optimizing over RCT results be preferable to
+using (observational, non-RCT) “foo” data?
+
+  It is very hard to draw causal inferences from observational data. Causal infererence refers to the differences caused by a treatment in the same unit. Since there is no counterfactual (alternative treatment assignation scenario for a unit), RCTs use controls to make units comparable. In observational studies, it is much harder to control for differences between the units that might confound differences in the effect of a treatment. Having said that, RCTs might be less generalizable; since they are trying to make units as similar to each other as possible, it is harder to generalize what the treatment would do to vastly different units. They also tend to be more expensive, lengthy, and in some cases unethical (e.g. testing the effects of smoking on lung cancer).   
+
+6) Potential future questions: 
+  a)Construct some graph to show changes in question 1 b visually. 
+  b)Construct some graph to visually show the size of the difference between project planned and actual durations.
+
+
+
+
