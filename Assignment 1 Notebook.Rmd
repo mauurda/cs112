@@ -201,11 +201,11 @@ b) we are isolating this table from other factors such as project delay, when th
   (a) The objective is to minimize project delay (Difference between original completion date and actual completion date).
   (b) The main lever is given in the prompt: budget. However, we can safely assume that the problem is not about finding one single ideal budget for all projects, but rather about finding an appropriate budget to minimize the projects delay given a series of the project's characteristics. To select this variables based on evidence, we would need a deeper analysis of their association with project delays.
   (c) 
-    1. Have multiple teams with comparable capacities and characteristics (e.g. same amount of people with a comparable background and seniority on each team) simultaneously assigned (randomly) to some of the villages in a large area.         2. Assign all of them the same project and original completion date, for example increasing the percentage of school age children enrolled in some elementary school by 25% in 2 years.
-    3. Analyze initial baselines for the variable which is the goal of the project (school enrollment in this example); make sure that they are relatively similar across villages.
-    4. Randomly assign different levels of funding to each of the teams.
-    5. Wait until each project is completed, regardless of the original completion date.
-    6. Compare delay times between teams with more or less funding.  
+    i.Have multiple teams with comparable capacities and characteristics (e.g. same amount of people with a comparable background and seniority on each team) simultaneously assigned (randomly) to some of the villages in a large area.         ii. Assign all of them the same project and original completion date, for example increasing the percentage of school age children enrolled in some elementary school by 25% in 2 years.
+    iii. Analyze initial baselines for the variable which is the goal of the project (school enrollment in this example); make sure that they are relatively similar across villages.
+    iv. Randomly assign different levels of funding to each of the teams.
+    v. Wait until each project is completed, regardless of the original completion date.
+    vi. Compare delay times between teams with more or less funding.  
 
 Notes: while ideal, this design would be expensive and lengthy). Simultaneously, a lot of tradeoffs would be made; in terms of generalizability vs. internal validity, having multiple villages in the same area makes the results less generalizable to other places but increases the reliability of comparison across units (villages).Having multiple (albeit seemingly comparable) teams running projects might not isolate the effect of differences in the team running the project as much as having one team rpeatedly try the same project, but it should remove the effects of a team becoming more efficient and forecastimng delays better after runnning the same project multiple times. 
 
