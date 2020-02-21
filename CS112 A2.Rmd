@@ -1,0 +1,513 @@
+---
+title: "CS112 A2"
+author: "Mauricio Urdaneta"
+date: "2/20/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Link to code: 
+https://github.com/mauurda/cs112
+
+1. "The Electric Company" Data
+
+
+a.Replicated Plot: Pre test vs Post Test, Grade 4 Students. Solid Line: Treatment Group, Dotted Line: Control Group.
+
+```{r grade4,echo=FALSE}
+sesame <- read.csv('~/Downloads/Data/sesame.csv')
+
+#Linear model with interaction term 
+lm.sesame.int <- lm(post.test~treatment*pre.test,data = sesame)
+
+#Replicate First Graph
+{sesame.plot <- plot(sesame$pre.test,sesame$post.test,ylim = c(0,120),xlim = c(0,120),xlab = 
+       "pre-test, x,",ylab = "post-test, y,")
+
+# Dashed Line for control: Intercept, pre test slope
+abline(lm.sesame.int$coefficients[1],lm.sesame.int$coefficients[3],lty=2)
+
+# Solid line from treatment: Intercept + treatment, pre test + treatment:pre:test.
+abline(lm.sesame.int$coefficients[1]+ lm.sesame.int$coefficients[2],lm.sesame.int$coefficients[3]+
+         lm.sesame.int$coefficients[4])}
+
+```
+  
+  
+b. We first plot the leverage of each datapoint (labeled here as hatvalues) to find the points which have the highest leverage on the constructed model. We find that it is index 24.
+    
+    
+```{r pressure, echo=FALSE}
+#Check point leverage
+which.max(hatvalues(lm.sesame.int))
+plot(hatvalues(lm.sesame.int),ylab="Leverage")
+```
+
+
+It is a unit in the control group, therefore, to make the treatment effect appear negative for all points, the difference between post test and pre test must be widened. If it had been a treated unit, then the manipulation would have to be inverted (making the difference between pre and post tests narrower) to achieve the same effect. We can see in the plot below the original (blue) and modified (red) position of this unit on a pre-test/post-test plot when we increase its post test score by 20%. 
+
+
+```{r echo= FALSE}
+#Modify High leverage Point
+mod_sesame <- sesame
+mod_sesame[24,1] <- sesame[24,1] *1.2
+
+
+#Linear model with interaction term 
+lm.mod.int <- lm(post.test~treatment*pre.test,data = mod_sesame)
+
+#Replicate First Graph
+{plot(mod_sesame$pre.test,mod_sesame$post.test,
+     ylim = c(0,120),xlim = c(0,120),xlab = "pre-test, x,",ylab = "post-test, y,")
+
+# Dashed Line for control: Intercept, pre test slope
+abline(lm.mod.int$coefficients[1],lm.mod.int$coefficients[3],lty=2)
+
+# Solid line from treatment: Intercept + treatment, pre test + treatment:pre:test.
+abline(lm.mod.int$coefficients[1]+ lm.mod.int$coefficients[2],
+       lm.mod.int$coefficients[3]+lm.mod.int$coefficients[4])
+points(mod_sesame$pre.test[24],mod_sesame$post.test[24],col="red")
+points(sesame$pre.test[24],sesame$post.test[24],col="blue")}
+```
+
+ 
+  c.
+    Replicated Plot 9.8: Uncertainty in Linear Model for Treatment Effect
+    
+    
+```{r include=FALSE}
+library(arm)
+attach(sesame)
+```
+
+```{r echo= FALSE}
+#simulate lm.sesame
+lm.sesame.sim <- sim(lm.sesame.int)
+
+{plot (0, 0, xlim=range(pre.test), ylim=c(-5,10),
+      xlab="pre-test", ylab="treatment effect",
+      main="treatment effect in grade 4")
+abline (0, 0, lwd=.5, lty=2)
+for (i in 1:20){
+  curve(lm.sesame.sim@coef[i,2] + lm.sesame.sim@coef[i,4]*x, lwd=.5, col="gray",
+         add=TRUE)
+  }
+curve (coef(lm.sesame.int)[2] + coef(lm.sesame.int)[4]*x, lwd=.5, add=TRUE)
+
+}
+
+```
+    
+The uncertainty in the linear model becomes lower as it approaches the area where most values are clustered. The further it has to extrapolate from those values, the more the uncertainty increases. To illustrate this, we can plot the actual data points and we will notice that the variation in the linear models is lower in that area. On the y axis, the data points are generally higher since the the points simply show the difference between pre test and post test, and therefore do not include an interaction term. 
+
+```{r echo=FALSE}
+#simulate lm.sesame
+lm.sesame.sim <- sim(lm.sesame.int)
+
+{plot (0, 0, xlim=range(pre.test), ylim=c(-5,10),
+      xlab="pre-test", ylab="treatment effect")
+abline (0, 0, lwd=.5, lty=2)
+for (i in 1:20){
+  curve(lm.sesame.sim@coef[i,2] + lm.sesame.sim@coef[i,4]*x, lwd=.5, col="gray",
+         add=TRUE)
+  }
+curve (coef(lm.sesame.int)[2] + coef(lm.sesame.int)[4]*x, lwd=.5, add=TRUE)
+
+points(sesame$pre.test,sesame$post.test-sesame$pre.test)
+}
+
+```
+    
+```{r include = FALSE}
+#check the approximate range of values to simulate
+min(sesame$pre.test)
+max(sesame$pre.test)
+
+#create a dataframe to hold predicted results at different levels of pre.test.
+pre.test <- 70:120 
+effect.ub <- 0 
+effect.lb <- 0
+pred.dif <- 0
+confints <- data.frame(pre.test,effect.ub,effect.lb, pred.dif)
+
+#For each level of pretest.
+for (i in 70:120) {
+  
+  #create a space for 300 predictions
+  pre.test <- rep(i,300)
+  
+  #make half treatment half control
+  treatment <- c(rep(0,150),rep(1,150))
+  predictionspace <- data.frame(pre.test,treatment)
+  
+  #simulate 300 coefficients with the original lm (includes interaction term).
+  simcoefs <- sim(lm.sesame.int,n.sims =300)
+  
+  #use each coefficient to predict a simulated outcome
+  predictions <- rep(0,300)
+  for (u in 1:300){
+    predictions[u]<- simcoefs@coef[u,2] + simcoefs@coef[u,4]* predictionspace$pre.test[i] 
+  }
+  
+  #store prediction mean and confidence interval bounds.
+  confints$effect.lb[which(confints$pre.test == i)] <- quantile(predictions,probs = 0.025)[1]
+  confints$effect.ub[which(confints$pre.test == i)] <- quantile(predictions,probs = 0.975)[1]
+  confints$pred.dif[which(confints$pre.test == i)] <- mean(predictions)
+  
+}
+
+#plot it.
+library(dplyr)
+library(ggplot2)
+library(knitr)
+```
+We can also observe this effect in the narrowing of the confidence intervals with simulated coefficients.
+
+```{r echo=FALSE}
+theme_set(theme_classic())
+ggplot(confints,aes(x=(pre.test))) + 
+  geom_ribbon(aes(ymin = effect.lb, ymax= effect.ub),fill="gray70") + 
+  geom_line(aes(y = 0),linetype="dashed") + 
+  geom_line(aes(y=pred.dif)) + 
+  labs(title="Predicted Treatment Effect", 
+   subtitle="\nMean and 95% confidence interval for the predicted difference\n
+   in post test associated with treatment at different pre test levels.",
+   caption = "Data: sesame",
+   x="Pre Test Score",
+   y="Post Test Score")
+
+```
+\newpage
+
+2. "Tinting" data
+
+a&b.
+```{r include=FALSE}
+library(formattable)
+library(dplyr
+        )
+tinting <- as_tibble(read.csv('~/Downloads/Data/tinting.csv'))
+
+#since the prompt is interested in tinting as a boolean might as well make it a boolean .
+new_tinting <- mutate(tinting, tint = ifelse( tint== "no", 0,1))
+lm.tinting <- lm(csoa ~ age + sex + target + tint + tint * age, data= new_tinting)
+
+
+#make a table to store results
+age <- c(20,30,40,50,60,70,80)
+target <- "hicon"
+sex <- "f"
+csoa <- 0 
+csoa.ub <- 0 
+csoa.lb <- 0
+effect <- 0 
+effect.lb <- 0 
+effect.ub <- 0 
+tint.preds <- tibble(age,target,sex,csoa,csoa.ub,csoa.lb,effect,effect.ub,effect.lb)
+
+#for each age
+for (a in tint.preds$age){
+  #simulate 1000 coefs
+  sims <- sim(lm.tinting,n.sims = 1000 )
+  csoa.preds <- rep(0,1000)
+  effect.preds <- rep(0,1000)
+  
+  for (b in 1:1000){
+    #predict csoa and effect using a coefficient
+    csoa.preds[b] <- sims@coef[b,1] + sims@coef[b,2]*a + sims@coef[b,5] + sims@coef[b,6] *a
+    effect.preds[b] <- sims@coef[b,5] + sims@coef[b,6] *a
+  }
+  
+  #store means and confidence interval bounds
+  tint.preds$csoa[which(tint.preds$age == a)] <- mean(csoa.preds)
+  tint.preds$csoa.lb[which(tint.preds$age == a)] <- quantile(csoa.preds,probs = 0.025)[1]
+  tint.preds$csoa.ub[which(tint.preds$age == a)] <- quantile(csoa.preds,probs = 0.975)[1]
+  tint.preds$effect[which(tint.preds$age == a)] <- mean(effect.preds)
+  tint.preds$effect.lb[which(tint.preds$age == a)] <- quantile(effect.preds,probs = 0.025)[1]
+  tint.preds$effect.ub[which(tint.preds$age == a)] <- quantile(effect.preds,probs = 0.975)[1]
+}
+
+#print table
+library(knitr)
+```
+
+```{r echo=FALSE}
+kable(tint.preds)
+```
+
+```{r echo=FALSE}
+#plot csoa predictions and bounds
+ggplot(tint.preds,aes(x=(age))) + 
+  geom_ribbon(aes(ymin = csoa.lb, ymax= csoa.ub),fill="gray70") + 
+  geom_line(aes(y=csoa)) + 
+  labs(title="Predicted csoa", 
+       subtitle="Mean and 95% confidence interval for the predicted difference\n
+       in post.test associated with treatment at different age levels.",
+       caption = "Data: tinting",
+       x="Age",
+       y="Predicted csoa")
+```
+
+CSOA is relatively well predicted by age. the confidence interval seems to be around the same width until age 60, where it widens, indicating higher variance in values. 
+
+
+```{r echo=FALSE}
+#plot effect predictions and bounds
+ggplot(tint.preds,aes(x=(age))) + 
+  geom_ribbon(aes(ymin = effect.lb, ymax= effect.ub),fill="gray70") + 
+  geom_line(aes(y = 0),linetype="dashed") + 
+  geom_line(aes(y=effect)) + 
+  labs(title="Predicted Treatment Effect", 
+       subtitle="Mean and 95% confidence interval for the predicted difference\n
+       in post.test associated with treatment at different age levels.",
+       caption = "Data: tinting",
+       x="Age",
+       y="Predicted Effect")
+```
+
+
+0, or no effect is always within the 95% confidence interval for treatment effect predictions in this plot. It thus fails to create significant evidence against the null hypothesis (no effect). 
+\newpage
+
+3. R^2 Function
+```{r echo=TRUE}
+rsq_fun <- function(ys,predys){
+  #Make a vector to store errors and variance
+  sq_errors <-rep(0,length(ys)) 
+  tot_var <-rep(0,length(ys))
+  
+  for(e in 1:length(ys)){
+    #store errors for each prediction and variance of each datapoint with the mean
+    sq_errors[e] <- (ys[e] - predys[e]) ^2
+    tot_var[e] <- (mean(ys) - ys[e])^2
+  }
+  #sum errors and variance
+  exp_var<- sum(sq_errors)
+  total_var <- sum(tot_var)
+  #divide Explaiuned variance / Total variance and substract result from 1.
+  rsq <- 1-(exp_var/total_var)
+  return(rsq)
+}
+```
+
+Comparing R^2 Function to R's lm summary using a lalonde example.
+
+```{r include=FALSE}
+#copypaste example
+library(Matching)
+
+data(lalonde)
+new_lalonde <- tibble(lalonde)
+new_lalonde <- mutate(lalonde,pred = 0)
+lm.lalonde <- lm(re78 ~ .,data=lalonde)
+preds <- rep(0,445)
+preds.lalonde <- predict(lm.lalonde,type = "response")
+
+#compare rsq vals
+myrsqfun <- rsq_fun(lalonde$re78,preds.lalonde)
+lm.summary <- summary(lm.lalonde)$r.squared
+
+```
+
+```{r echo=FALSE}
+kable(rbind(myrsqfun,lm.summary))
+```
+
+We get identical results. 
+
+\newpage
+4. "Maze"  data
+
+b. Confidence intervals were calculated by bootstrapping 10,000 samples, as prompted. Instead of a histogram showing the variance in one bag of bootstrap samples, I opted for showing the 95% confidence interval obtained from each set of samples as the sample size of each individual bootstrapped sample increases. 
+
+```{r include=FALSE}
+#Mazedata
+library(foreign)
+
+maze <- as_tibble(read.dta('~/Downloads/Data/mazedata1.dta'))
+
+#turn treatment into binary
+new_maze <- mutate(maze,treatment = ifelse(treatment == "Caste Revealed",1,0))
+
+#separate groups
+tr <- filter(new_maze, treatment == 1)
+untr<-  filter(new_maze, treatment == 0)
+
+#create a df to store what happens whe you change the size of each bootstrap sample. 
+sample.size <- 1:100
+lb <- rep(0,100)
+ub <- rep(0,100)
+sample_sizes <- tibble(sample.size,lb,ub)
+
+for (s in sample_sizes$sample.size){
+  #create a vector to store effects
+  diffs <- rep(0,10000)
+  
+  #make samples 
+  for (i in 1:10000){
+    bs.ind <- sample(1:length(tr),s,replace = T)
+    diffs[i] <- mean(tr$round1[bs.ind]) - mean(untr$round1[bs.ind])
+  }
+  sample_sizes$lb[which(sample_sizes$sample.size == s)] <- quantile(diffs,probs = 0.025)
+  sample_sizes$ub[which(sample_sizes$sample.size == s)] <- quantile(diffs,probs = 0.975)
+  
+}
+
+Bootstrapped <- quantile(diffs,probs = c(0.025,0.975))
+```
+
+```{r echo=FALSE}
+ggplot(sample_sizes,aes(x = sample.size)) + 
+  geom_line(aes(y = 0),linetype="dashed") +
+  geom_ribbon(aes(ymax=ub,ymin=lb),color="gray74",alpha= 0.7) + 
+  labs(x="Size of each Bootstrap sample",y= "95% confint effect")
+
+```
+
+a. Table comparing results when bootstrapped at different bootstrap sizes (always 10,000 samples) and when computed using base r. 
+
+```{r echo=FALSE}
+Bootstrapped1 <- sample_sizes[1,2:3]
+Bootstrapped2 <- sample_sizes[14,2:3]
+Bootstrapped3 <- sample_sizes[50,2:3]
+Bootstrapped4 <- sample_sizes[100,2:3]
+
+Confint <- confint(lm(round1~ treatment , data= new_maze))[2,]
+tab <-rbind(Bootstrapped1,Bootstrapped2,Bootstrapped3,Bootstrapped4,Confint) 
+tab$method <- c("Bootstrapped @ n:1","Bootstrapped @ n:14","Bootstrapped @ n:50","Bootstrapped @ n:100","Confint")
+tab<- as_tibble(tab)
+tab <- select(tab,method,lb,ub)
+kable(tab)
+```
+
+\newpage
+
+5. "nsw_dw3" Data
+
+```{r include=FALSE}
+
+#foo data
+foo <- as_tibble(read.csv('~/Downloads/Data/nsw_dw3.csv'))
+set.seed(12345)
+test_set_rows <- sample(1:length(foo$age), 2000, replace =
+                          FALSE)
+foo_train <- foo[-test_set_rows, ]
+foo_test <- foo[test_set_rows, ]
+simple.foo.lm <- glm(treat~education, data = foo_train,family = "binomial")
+complex.foo.lm <- glm(treat~ . +re74*re75 - re74 -re78,data = foo_train,family = "binomial")
+
+library(boot)
+simple.cv.error.10 = cv.glm(foo_train,simple.foo.lm,K=10)$delta[1]
+complex.cv.error.10 = cv.glm(foo_train,complex.foo.lm,K=10)$delta[1]
+
+
+#due to high computational expense, this lines are commented out and their results inputted manually. 
+#simple.cv.error.loocv = cv.glm(foo_train,simple.foo.lm)$delta[1]
+#complex.cv.error.loocv = cv.glm(foo_train,complex.foo.lm)$delta[1]
+simple.cv.error.loocv <- 0.01143043
+complex.cv.error.loocv <- 0.008010238
+#
+
+
+simple.preds <- rep(0,2000)
+complex.preds <- rep(0,2000)
+
+simple.probs <- predict.glm(simple.foo.lm,foo_test,type="response")
+complex.probs <- predict.glm(complex.foo.lm,foo_test,type="response")
+
+for (i in 1:2000){
+  simple.preds[i] <- ifelse(simple.probs[i]> 0.5,1,0)
+  complex.preds[i] <- ifelse(complex.probs[i]> 0.5,1,0)
+}
+
+complex.test.error <- 1 -((table(complex.preds,foo_test$treat)[1,1] +
+       table(complex.preds,foo_test$treat)[2,2])/length(complex.preds))
+simple.test.error <- 1 - table(simple.preds,foo_test$treat)[1,1] /length(simple.preds)
+
+Model <- c("Simple","Simple","Simple","Complex","Complex","Complex")
+Method <- c("10-fold CV","Loocv","Test Error","10-fold CV","Loocv","Test Error")
+Error.Rate <- c(simple.cv.error.10,simple.cv.error.loocv,simple.test.error,
+                complex.cv.error.10,complex.cv.error.loocv,complex.test.error)
+Results <- tibble(Model,Method,Error.Rate)
+
+
+```
+
+
+
+```{r echo=FALSE}
+kable(Results)
+```
+
+Both for the complex and simple models, LOOCV and 10 fold cross validation gave similar misclassification rates results. It is worth noting that LOOCV was a much more computationally intensive method, resulting in significantly longer running times. In this case, the dataset is quite large, so the added value of LOOCV (less sampling uncertainty) does not seem justified considering the additional computation cost. 
+It is also worth noting that although the simple model had a higher CV error rate (through LOOCV and 10 fold cv), its test error is comparable to the complex model. 
+
+However, the simple model predicted no treated units. Treated units constituted such a small part of the full dataset that not predicting any produced comparable results (in terms of error rate) as the complex model, which had a lower false negative rate.
+
+If false negatives were especially dangerous in this situation (and false positives were preferable) it would be advisable to use the complex model. 
+
+\newpage
+6. Decision Brief
+
+```{r echo= FALSE}
+#decision brief
+trt = matrix(NA,nrow=2,ncol=7)
+ctrl = matrix(NA,nrow=2,ncol=7) 
+
+trt[,1]=c(0, 2) #18
+ctrl[,1]=c(3, 10)
+trt[,2]=c(0, 3) #20
+ctrl[,2]=c(2, 8)
+trt[,3]=c(0, 4) #22
+ctrl[,3]=c(2, 7)
+trt[,4]=c(1, 3) #24
+ctrl[,4]=c(2, 6)
+trt[,5]=c(1, 3) #26
+ctrl[,5]=c(2, 5)
+trt[,6]=c(1, 3) #28
+ctrl[,6]=c(2, 4)
+trt[,7]=c(1, 2) #30
+ctrl[,7]=c(1, 3)
+
+
+c1 = rgb(red = 1, green = 0, blue = 0, alpha = 0.5) #trt
+c2 = rgb(red = 0, green = 0, blue = 1, alpha = 0.5) #ctrl
+
+{plot(x = c(1:100), y = c(1:100), type = "n", xlim = c(17,31), ylim = c(0,11), cex.lab=1.2,
+     main = "Alcohol Consumption - 95% Prediction Intervals", xlab = "Age",ylab = "Drinks per Week")
+
+for (age in seq(from=18,to=30,by=2)) { 
+  segments(x0 = age-0.05, y0 = trt[1, (age-18)/2+1],
+           x1 = age-0.05, y1 = trt[2, (age-18)/2+1],lwd = 3,col=c1)
+  
+  segments(x0 = age+0.05, y0 = ctrl[1, (age-18)/2+1],
+           x1 = age+0.05, y1 = ctrl[2, (age-18)/2+1],lwd = 3,col=c2)
+}
+legend('topright',legend=c('Treatment','Control'),fill=c(c1,c2))
+mtext("https://tinyurl.com/vwxuwop", side = 1, cex = 0.5, adj = 0, padj = 10)}
+
+
+```
+
+
+
+Context: 
+
+For this largely unethical RCT, we randomly divided a huge college class into two groups during spring break. Each group was assigned an identical but isolated venue and instructed to throw a party every night for a week. In the control group, the participants were also provided with equipment conducive to drinking games (i.e. plastic cups, ping pong balls and cards). Participants in the treatment group were instead provided with entretainment equipment that was not as conductive to the organization of drinking games (i.e. basket balls and a hoop). 
+
+Results: 
+
+Through the figure, we can observe the 95% confidence intervals related to the average drinks per week per participant. We see that the confidence intervals for lower age participants tend to have less overlap than for higher age participants, suggesting that the effect is stronger for lower aged participants. For all ages except 22 and 28, the treatment group also observed less variance than the control group, making the confidence intervals shorter. 
+
+Doubts:
+
+The first line of doubt measures the study methodology; even though the sample size in terms of participants is large enough, and the confidence intervals were obtained through exhaustive simulation, the venues were only two, and each tends to develop a particular "culture" which has features of a complex system and might be highly influential to the participants' behaviors. Therefore, for the results to be considered more reliable, it would be necessary to replicate the study across many cohorts, which might come at a prohibitive cost.
+The second concerns the choice of treatment, as it has two components: deprivation of "party game materials" and access to "a hoop and basketball". It is therefore impossible to tease apart the effect of each on the results.
+
+Recommendations:
+
+If the results of this replication are found to be consistent with those found in this experiment, it would provide evidence that supports the hypothesis that restricting access to "party game materials" and substituting it for other types of entretainment is a good strategy to curve younger drinking. 
+
+
