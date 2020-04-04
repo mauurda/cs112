@@ -1,0 +1,410 @@
+---
+title: "CS112 A3: Causal Inference Assignment"
+author: Mau Urdaneta
+output:
+  html_notebook
+---
+
+
+Link to code: 
+https://github.com/mauurda/cs112 
+
+
+
+## Part A: Daughters
+Based on: 
+Iacus, King, Porro (2011), Multivariate Matching Methods 
+That Are Monotonic Imbalance Bounding, JASA, V 106, N. 493,
+available here:https://gking.harvard.edu/files/gking/files/cem_jasa.pdf
+
+### 1) Estimating a treatment effect and confidence interval for: nowtot~ Dems + Repubs + Christian + age + srvlng + demvote + hasgirls.
+Treatment effect estimate and confidence interval for "hasgirls":
+```{r A1, include=TRUE}
+dfoo <- read.csv(url("https://course-resources.minerva.kgi.edu/uploaded_files/mke/00089202-1711/daughters.csv"))
+#
+lm1 <- lm(nowtot~ Dems + Repubs + Christian + age + srvlng + demvote + hasgirls, data = dfoo)
+co <-lm1$coefficients["hasgirls"]
+ci <- confint(lm1)[8,]
+cat("Treatment coefficient: ",co,"\n","95% Confidence Interval: ", ci)
+```
+### 2) Checking the balance of the dataset
+
+
+We "predict" the likelihood that any unit will be assigned to treatment or control
+to assess the balance of the "predictor" covariates in these two groups.
+The resulting p-values are akin to a broken down propensity score that shows how much each covariate contributes to the likelihood of being in the treatment as opposed to the control group.
+Thus, smaller p-values imply a larger imbalance on that covariate. 
+
+```{r A2i, include=TRUE}
+lmA2 <- glm(hasgirls ~ Dems + Repubs + Christian + age + srvlng + demvote, data = dfoo, family=binomial)
+summary(lmA2)
+```
+Out of the covariates specified in the prompt, age and srvlength are quite imbalanced (small p values), so is Christian but to a much smaller degree. An advantage of this approach is that it allows us to see when a difference between treatment and control is statistically significant even when comparing them visualy would not make it as aoparent. For example, we can see here boxplots showing the 25%, 50%, and 75% quantiles on both covariates for treatment and control groups. 
+```{r A2ii, include=TRUE, echo=TRUE}
+library(ggplot2)
+theme_set(theme_classic())
+ggplot(dfoo, aes(y=srvlng,group=hasgirls)) +
+  geom_boxplot(aes(x= hasgirls),notch = T) + 
+  scale_x_continuous(breaks=c(0,1)) + 
+  labs(y="Service Length",x="Senator has girls")
+```
+
+```{r A2iii, include=TRUE, echo=TRUE}
+ggplot(dfoo, aes(y=age, group=hasgirls)) +
+  geom_boxplot(aes(x=hasgirls),notch = T) +
+  scale_x_continuous(breaks=c(0,1)) + 
+  labs(y="Age",x="Senator has girls")
+```
+
+### 3) Genetic Matching
+
+We use GenMatch to balance on the same covariates specified on section A1. 
+```{r A3i, include=TRUE, echo=TRUE}
+set.seed(2324)
+library(Matching)
+X.a = cbind(dfoo$Dems,dfoo$Repubs,dfoo$Christian,dfoo$age,dfoo$srvlng,dfoo$demvote)
+Tr.a = dfoo$hasgirls
+Y.a= dfoo$nowtot
+
+genout.a <- GenMatch(Tr = Tr.a , X = X.a , pop.size =40 , nboots =400, wait.generations = 3 )
+```
+After Running 14 generations (size: 40), the best balance was found on Generation 10. At which the minimum pvalue was .317. While this is not perfect, it is much better than the unmatched dataset. We can see this in the folloowing MatchBalance Result. 
+
+```{r A3ii, include=TRUE, echo=TRUE}
+mout.a <- Match(Tr = Tr.a , X = X.a , Weight.matrix =genout.a, M=1 ,estimand="ATT")
+
+MatchBalance(dfoo$hasgirls ~ dfoo$Dems + dfoo$Repubs + dfoo$Christian + dfoo$age + dfoo$srvlng + dfoo$demvote, match.out = mout.a )
+```
+Even when we tried running 26 Generations, the smallest P value was still around .32 on Dems even though the means of the treatment and control group for this variable differ by < 0.005. Age used to be the worst balanced covariate (p val: 0.002) now it has a p val of ~.42. 
+```{r A4, include=TRUE, echo=TRUE}
+mout.a.2 <- Match(Tr = Tr.a , X = X.a, Y=Y.a, Weight.matrix =genout.a, M=1, estimand="ATT")
+summary(mout.a.2)
+```
+The sign of our estimated ATT changed from negative in A2 to positive in A4. At this point, we still have 312 observations (~73%) of the original dataset. We could try to obtain larger pvalues by specifying exact matches or more narrow calipers for each covariate but the tradeoff in terms of observations dropped does not seem to be worth doing so. 
+
+
+##Part B: Daughters (Extremes)
+
+Here, we take the extremes of the treatment variable only; we focus only on senators with 2  or more daughters for the treatment group and on senators with 2 or more sons for the control group. I excluded the observations that meet both criteria (loosing 54 observations) to better isolate the comparative effect of having daughters "as opposed" to sons instead of additionally to sons. If we wanted to compare the effect of having daughters regardless of the amount of sons, these observations should have stayed.
+
+### 1) Filtering data and estimating a treatment effect and confidence interval for: nowtot~ Dems + Repubs + Christian + age + srvlng + demvote + hasgirls.
+i) Regression Specification:
+
+```{r B1i, include=TRUE, echo=TRUE}
+library(dplyr)
+new_foo <- dfoo %>% 
+  filter((ngirls>=2 | nboys >=2) & !(ngirls >=2 & nboys>=2) ) %>%
+  mutate(treat = ifelse(ngirls>=2,1,0))
+
+lm.new <- lm(nowtot~ Dems + Repubs + Christian + age + srvlng + demvote + hasgirls, data = new_foo)
+
+co <-lm.new$coefficients["hasgirls"]
+ci <- confint(lm.new)[8,]
+cat("Treatment coefficient: ",co,"\n","95% Confidence Interval: ", ci)
+```
+The treatment effect is now much larger (in a linear regression), even though the 95% confidence interval still includes 0. 
+
+```{r B2, include=TRUE, echo=TRUE}
+#Because there are no longer independent candidates in the sample, running a logistic regression with both 
+#Repubs and Dems produces an error since these two are perfectly and inversely correlated. 
+lmB2 <- glm(hasgirls ~ Dems + Christian + age + srvlng + demvote, data = new_foo, family=binomial)
+summary(lmB2)
+```
+ Although overall, most variables are less balanced, some of the previously least balance variables (age and srvlng) are now considerably better balanced before matching (smallest pval: 0.02).  
+
+```{r B3i,include=TRUE, echo=TRUE }
+
+X.b = cbind(new_foo$Dems,new_foo$Repubs,new_foo$Christian,new_foo$age,new_foo$srvlng,new_foo$demvote)
+Y.b = new_foo$nowtot
+Tr.b =new_foo$treat
+
+genout.b <- GenMatch(X=X.b,Tr=Tr.b,pop.size =80 , nboots =100, wait.generations = 6)
+
+mout.b<- Match(X=X.b,Tr = Tr.b, M = 1, Weight.matrix = genout.b,estimand="ATT")
+
+MatchBalance(new_foo$hasgirls ~ new_foo$Dems + new_foo$Repubs + new_foo$Christian + new_foo$age + new_foo$srvlng + new_foo$demvote, match.out = mout.b )
+```
+
+Now, the least balanced variable has a pval of >.5. Again, even though the balance is not pèrfect, it is much better than the unmatched dataset and even better than the matched dataset we used in part A. . It is important to note when reporting the results of this analysis that a) the estimates are calculated using more extremes parts of the control and treatment groups (at least two daughters or two sons and not both), and that b) the subset upon which the ATT (Average Treatment effect on the Treated) is significantly smaller.  
+
+```{r B3ii}
+mout.b2<- Match(X=X.b,Y=Y.b,Tr = Tr.b, M = 1, Weight.matrix = genout.b,estimand="ATT")
+summary(mout.b2)
+```
+Our ATT estimate is now 5.78, meaning that for units in the pruned treatment group, we estimate that they on average, they would show around this much additional support for NOW if they have two daughters as opposed to two sons. Just like blocking, we balanced on covariates like political affiliation, age, and service length to try to isolate the effect of our vartiable of interest from the potentially confounding effects of these covariates.
+
+
+
+Bonus question: 
+
+```{r B4i, include=TRUE, echo=TRUE}
+#regression similar to the first used in original paper but changing ngirls to hasgirls and removing totchi.
+
+basemod <- lm(nowtot ~ hasgirls + female + white + repub + srvlng + region+I(srvlng^2) + age + I(age^2) + rgroup + demvote, data=dfoo)
+co <-basemod$coefficients["hasgirls"]
+ci <- confint(basemod)[2,]
+cat("Treatment coefficient: ",co,"\n","95% Confidence Interval: ", ci)
+
+```
+
+```{r B4ii, include=TRUE, echo=TRUE}
+X.rep <- cbind(dfoo$female,
+               dfoo$white,dfoo$repub,dfoo$srvlng,dfoo$region,dfoo$srvlng^2,
+               dfoo$age,dfoo$age^2,dfoo$rgroup,dfoo$demvote)
+Tr.rep = dfoo$hasgirls
+Y.rep = dfoo$nowtot
+genout.rep <- GenMatch(X=X.rep, Tr = Tr.rep,M=1, pop.size = 50, max.generations = 20, wait.generations = 6,nboots = 100)
+mout.rep <- Match(X= X.rep,Y=Y.rep,Tr=Tr.rep,  M = 1, Weight.matrix = genout.rep,estimand="ATT" )
+summary(mout.rep)
+
+```
+
+As in the King paper, the ATT estimate becomes significantly larger when Matching, even in this modified version (hasgirls instead of ngirls and removing totchi). 
+
+
+###Why not balance on totchi?
+
+The treatment is supposed to be having daughters as opposed to having sons. When we looked at just families with two of either we were trying to magnify the difference in the treatment variable between treatment and control groups. Balancing on hasgirls would mean trying to balance the treatment variable across treatment and control groups, when that is the variable whose effect we want to isolate from the confounders (covaruiates we want to blance on). Especially for the second dataset (2 girls vs. 2 boys), totchi would be highly dependent on the treatment variable, so balancing on it could be similar to balancing the treatment variable across both groups. 
+
+
+
+#Part C: Business Lending in Indonesia. 
+Based on: 
+https://docs.google.com/document/d/1SkGRu1lipC-Z4-wVFRmQrKd7SIGRcDOJN3pCz-voP_s/edit?usp=sharing
+
+```{r C1, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE)
+#foo <- read.csv("https://tinyurl.com/y2qv82ks")
+library(date)
+library(Matching)
+library(dplyr)
+foo <- read.csv('~/Downloads/Data/district.csv') 
+missing_bank_code <- rep(0, 76772)
+missing_bank_name <- rep(0, 76772)
+missing_date_of_birth <- rep(0, 76772)
+NA_postal_code <- rep(0, 76772)
+NA_capital <- rep(0, 76772)
+NA_credit_proposal <- rep(0, 76772)
+
+foo <- cbind(foo, missing_bank_code,
+             missing_bank_name,
+             missing_date_of_birth,
+             NA_postal_code,
+             NA_capital,
+             NA_credit_proposal)
+
+foo$missing_bank_code[which(foo$bank_code == "")] <- 1
+foo$missing_bank_name[which(foo$bank_name == "")] <- 1
+foo$missing_date_of_birth[which(foo$date_of_birth == "")] <- 1
+foo$NA_capital[which(is.na(foo$capital) == TRUE)] <- 1
+foo$NA_credit_proposal[which(is.na(foo$credit_proposal) == TRUE)] <- 1
+foo$NA_postal_code[which(is.na(foo$postal_code) == TRUE)] <- 1
+
+# change the dates to R-readable format
+foo$R_date_of_birth <- as.character(foo[,3])
+for(i in 1:length(foo[,3])) {foo$R_date_of_birth[i] <- as.date(foo$R_date_of_birth[i], order = 
+"dmy")}
+foo$R_date_of_birth <- as.date(as.numeric(foo$R_date_of_birth))
+
+oldest <- which(foo$R_date_of_birth < as.date("1-Jan-1910"))
+youngest <- which(foo$R_date_of_birth > as.date("1 Jan 2001"))
+
+foo$oldest <- rep(0, length(foo[,3]))
+foo$youngest <- rep(0, length(foo[,3]))
+foo$outlier_ages <- rep(0, length(foo[,3]))
+foo$oldest[oldest] <- 1
+foo$youngest[youngest] <- 1
+foo$outlier_ages[c(oldest,youngest)] <- 1
+
+foo$R_date_of_birth[which(is.na(foo$R_date_of_birth) == TRUE)] <- -9999999
+
+# This obs with specific postal code makes no sense
+foo <- foo[-which(foo$postal_code == 9151), ]
+
+# To extract only the first digit of postal codes:
+foo$postal_code1 <- foo$postal_code%/% 10000
+foo$postal_code1[which(is.na(foo$postal_code1) == TRUE)] <- -9999999
+
+# credit_proposal feature engineering
+foo$credit_proposal[which(is.na(foo$credit_proposal) == TRUE)] <- 9999999
+
+foo$credit_proposal_0 <- foo$credit_proposal == 0 & (is.na(foo$credit_proposal) == FALSE)
+foo$credit_proposal_0to5 <- foo$credit_proposal > 0 & foo$credit_proposal < 5000000 & 
+(is.na(foo$credit_proposal) == FALSE)
+foo$credit_proposal_5to10 <- foo$credit_proposal >= 5000000 & foo$credit_proposal < 10000000 & 
+(is.na(foo$credit_proposal) == FALSE)
+foo$credit_proposal_10to20 <- foo$credit_proposal >= 10000000 & foo$credit_proposal < 20000000 & 
+(is.na(foo$credit_proposal) == FALSE)
+foo$credit_proposal_20up <- foo$credit_proposal >= 20000000 & (is.na(foo$credit_proposal) == 
+FALSE)
+
+foo$credit_proposal_transformed <-
+  1*foo$credit_proposal_0 +
+  2*foo$credit_proposal_0to5 +
+  3*foo$credit_proposal_5to10 +
+  4*foo$credit_proposal_10to20 +
+  5*foo$credit_proposal_20up +
+  6*foo$NA_credit_proposal
+
+# NA capital
+foo$capital[which(is.na(foo$capital) == TRUE)] <- 9999999
+
+# capital feature engineering
+foo$capital_0 <- foo$capital == 0 & (is.na(foo$capital) == FALSE)
+foo$capital_0to2 <- foo$capital > 0 & foo$capital < 200000 & (is.na(foo$capital) == FALSE)
+foo$capital_2to5 <- foo$capital >= 200000 & foo$capital < 500000 & (is.na(foo$capital) == FALSE)
+foo$capital_5to10 <- foo$capital >= 500000 & foo$capital < 1000000 & (is.na(foo$capital) == 
+FALSE)
+foo$capital_10to20 <- foo$capital >= 1000000 & foo$capital < 2000000 & (is.na(foo$capital) == 
+FALSE)
+foo$capital_20to50 <- foo$capital >= 2000000 & foo$capital < 5000000 & (is.na(foo$capital) == 
+FALSE)
+foo$capital_50up <- foo$capital >= 5000000 & (is.na(foo$capital) == FALSE)
+foo$capital_transformed <-
+  1*foo$capital_0 +
+  2*foo$capital_0to2 +
+  3*foo$capital_2to5 +
+  4*foo$capital_5to10 +
+  5*foo$capital_10to20 +
+  6*foo$capital_20to50 +
+  7*foo$capital_50up +
+  8*foo$NA_capital
+
+# worker feature engineering
+# remove outlier in the control group (10 million workers)
+foo <- foo[-which(foo$worker == max(foo$worker)),]
+
+foo$worker_0 <- foo$worker == 0
+foo$worker_1 <- foo$worker == 1
+foo$worker_2 <- foo$worker == 2
+foo$worker_3 <- foo$worker == 3
+foo$worker_4 <- foo$worker == 4
+foo$worker_5to9 <- foo$worker >=5 & foo$worker < 10
+foo$worker_10to24 <- foo$worker >=10 & foo$worker < 25
+foo$worker_25to99 <- foo$worker >=25 & foo$worker < 100
+foo$worker_100up <- foo$worker >= 100
+
+foo$worker_transformed <-
+  1*foo$worker_0 +
+  2*foo$worker_1 +
+  3*foo$worker_2 +
+  4*foo$worker_3 +
+  5*foo$worker_4 +
+  6*foo$worker_5to9 +
+  7*foo$worker_10to24 +
+  8*foo$worker_25to99 +
+  9*foo$worker_100up
+
+
+
+
+# Treatment Indicator
+foo$treat <- foo$status == "Sudah"
+foo_badan <- foo[which(foo$gender == "BADAN USAHA"), ]
+foo_people <- foo[-which(foo$gender == "BADAN USAHA"), ]
+
+```
+
+##My code
+```{r C2, include=TRUE, echo=TRUE}
+
+#Creates a column containing the first two digits of district code. 
+foo <- mutate(foo,district_code2 = (district_code-(district_code %%100))/100)
+
+foo <-filter(foo,R_date_of_birth>=-10000)
+
+#swaps postal code for district_code2 (first 2 digits of distric code).  
+X.c = cbind(foo$R_date_of_birth, foo$gender, foo$marital_status,
+                foo$education, foo$occupation, foo$district_code2,
+                foo$worker, foo$capital, foo$credit_proposal,
+                foo$worker_transformed, foo$capital_transformed, foo$credit_proposal_transformed,
+                foo$missing_date_of_birth,
+                foo$NA_postal_code,
+                foo$NA_capital,
+                foo$NA_credit_proposal)
+
+
+Tr.c <- foo$treat
+
+BalanceMat.c <- X.c
+#Exact Match on district code
+exact.c = c(FALSE, TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE,TRUE, TRUE, TRUE, TRUE, TRUE, TRUE,TRUE)
+#Caliper that uses the equivalent of a year in standard deviations and huge calipers in the rest. 
+caliper.c =c((365/sd(foo$R_date_of_birth)),1e16,1e16,1e16,1e16,1e16,1e16,1e16,1e16,1e16,1e16,1e16,1e16,1e16,1e16,1e16)
+
+```
+
+### GenMatch
+```{r C3i, include=TRUE, echo=TRUE}
+knitr::opts_chunk$set(cache = TRUE)
+genout.c <- GenMatch(Tr=Tr.c, X=X.c, BalanceMatrix=BalanceMat.c, estimand='ATT', M=1,pop.size=50, max.generations=20, wait.generations=6, exact= exact.c, caliper = caliper.c)
+
+```
+
+```{r C3ii, include=TRUE, echo=TRUE}
+#add caliper to Match function because it is the constraint under which the 
+mout.c <- Match(Tr=Tr.c, X=X.c, estimand='ATT', M=1, exact = exact.c, Weight.matrix = genout.c, caliper = caliper.c)
+
+
+```
+
+
+
+```{r C3iii, include=TRUE, echo=TRUE}
+
+mb <- MatchBalance(foo$treat~
+                            	foo$R_date_of_birth + foo$gender + foo$marital_status +
+                            	foo$education + foo$occupation + foo$district_code2 +
+                            	foo$worker + foo$capital + foo$credit_proposal +
+                            	foo$worker_transformed + foo$capital_transformed + 
+                              foo$credit_proposal_transformed +
+                            	foo$missing_date_of_birth +
+                            	foo$NA_postal_code +
+                            	foo$NA_capital +
+                            	foo$NA_credit_proposal,
+                         	match.out=mout.c, nboots=500)
+
+```
+
+
+
+
+
+
+##Digle Cow
+
+Based on: 
+https://www.sciencedirect.com/science/article/abs/pii/S0034528818311688
+```{r E, include=TRUE, echo=TRUE}
+library(agridat)
+library(rbounds)
+library(sensitivitymv)
+knitr::opts_chunk$set(cache = TRUE)
+
+foo.cow <- diggle.cow
+
+#Removes one NA and turns factors into booleans. 
+foo.cow<- foo.cow %>%
+  filter(!is.na(weight))%>%
+  mutate(iron = ifelse(iron == "Iron",1,0),infect = ifelse(infect=="Infected",1,0))
+
+#the experiment had a 2 by 2 factorial design. since the prompt specifies that we should only use one predictor, I understood the treatment group as  those "maintained on limited dietary copper and supplemented iron".
+
+X.cow <- cbind(foo.cow$day,foo.cow$infect)
+Y.cow = foo.cow$weight
+Tr.cow = foo.cow$iron
+
+#I am concerned that even though 
+genout.cow <- GenMatch(X=X.cow,Tr= Tr.cow, M=1, pop.size = 20,estimand="ATT", wait.generations = 4)
+mout.cow <- Match(X=X.cow,Y=Y.cow,Tr = Tr.cow,estimand="ATT", M=1, Weight.matrix = genout.cow)
+
+summary(mout.cow)
+```
+
+```{r, include=TRUE, echo=TRUE}
+psens.cow <- psens(mout.cow,Gamma = 10, GammaInc = .1)$bounds
+filter(psens.cow,`Upper bound` >0 &`Upper bound` <0.1 )
+
+```
+
+Matching only on infect, and using the rbounds package, we get a critical value of Gamma between 1.49 and 1.5. This means that for the treatment estimate computed with Matching to stop being statistically significant if treatment was correlated with another hidden variable, the odds of a unit in the treatment group having that hidden variable would have to be ~1.5 times larger than those for the control group. If we instead match on both day and infection (which makes intuitive sense, assuming that the effect of iron and infected happen over time), the critical value for Gamma at which this happens (results stop being significant) rises to ~ 3.5, making our estimate more robust. 
